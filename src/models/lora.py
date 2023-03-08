@@ -3,6 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import re
 
+import sys
+from os import path
+
+sys.path.append(path.abspath(__file__))
+
+import src.models.word2ket as w2k
+import math
+
 
 class LoRALinear(nn.Module):
     def __init__(self, linear_layer, rank, scaling_rank, init_scale):
@@ -13,10 +21,35 @@ class LoRALinear(nn.Module):
         self.scaling_rank = scaling_rank
         self.weight = linear_layer.weight
         self.bias = linear_layer.bias
+        self.w2v_embedding_layer = w2k.EmbeddingKet(
+            num_embeddings=12,
+            embedding_dim=linear_layer.out_features,
+            order=4,
+            rank=5,
+            # device="cpu",
+        )
+
+        # self.w2xs_embedding_layer = w2k.EmbeddingKetXS(
+        #     num_embeddings=12,
+        #     embedding_dim=linear_layer.out_features,
+        #     order=4,
+        #     rank=5,
+        # )
+
+        self.order = 4
+        self.embed2ket_rank = 1
+        self.num_embeddings = 1
+        self.device = "cuda"
+        self.use = "emb2ket_random"
+
         if self.rank > 0:
-            self.lora_a = nn.Parameter(torch.randn(rank, linear_layer.in_features) * init_scale)
+            self.lora_a = nn.Parameter(
+                torch.randn(rank, linear_layer.in_features) * init_scale
+            )
             if init_scale < 0:
-                self.lora_b = nn.Parameter(torch.randn(linear_layer.out_features, rank) * init_scale)
+                self.lora_b = nn.Parameter(
+                    torch.randn(linear_layer.out_features, rank) * init_scale
+                )
             else:
                 self.lora_b = nn.Parameter(torch.zeros(linear_layer.out_features, rank))
         if self.scaling_rank:
@@ -24,36 +57,110 @@ class LoRALinear(nn.Module):
                 torch.ones(self.scaling_rank, linear_layer.in_features)
                 + torch.randn(self.scaling_rank, linear_layer.in_features) * init_scale
             )
+
             if init_scale < 0:
                 self.multi_lora_b = nn.Parameter(
                     torch.ones(linear_layer.out_features, self.scaling_rank)
-                    + torch.randn(linear_layer.out_features, self.scaling_rank) * init_scale
+                    + torch.randn(linear_layer.out_features, self.scaling_rank)
+                    * init_scale
                 )
             else:
-                self.multi_lora_b = nn.Parameter(torch.ones(linear_layer.out_features, self.scaling_rank))
+                # print("load word2ket")
+                # select_vector = torch.randint(0, 12, (1, 1))[0].to("cuda")
+                # self.multi_lora_b = self.w2v_embedding_layer(select_vector)
+                # self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
+
+                if self.use == "ia3":
+
+                    self.multi_lora_b = nn.Parameter(
+                        torch.ones(linear_layer.out_features, self.scaling_rank)
+                    )
+                elif self.use == "emb2ket":
+                    self.embedding_size = linear_layer.out_features
+                    self.embedding_dim_leaf = math.ceil(
+                        (self.embedding_size) ** (1 / self.order)
+                    )
+                    print("leaf_dim", self.embedding_dim_leaf)
+                    self.weight_leafs = nn.Parameter(
+                        torch.ones(  # TODO:  During backward do we need all of these parameters to be loaded ? can we do better?
+                            self.order,
+                            self.embed2ket_rank,
+                            self.num_embeddings,
+                            self.embedding_dim_leaf,
+                        )
+                    )
+                    print("self.weight_leafs_size", self.weight_leafs.size())
 
     def forward(self, input):
+        if self.use == "emb2ket":
+            w = self.weight_leafs
+            # print("w", w.size())
+            w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
+            # print("w01 part", w[0, :, :, :, None].size())
+            # print("w02 part", w[1, :, :, None, :].size())
+            # print("w01", w01.size())
+            w01 = w01.view(self.embed2ket_rank, self.num_embeddings, -1)
+            # w01 = nn.LayerNorm(w01.shape[-2:]).cuda()(w01)
+
+            w23 = w[2, :, :, :, None] * w[3, :, :, None, :]
+            w23 = w23.view(self.embed2ket_rank, self.num_embeddings, -1)
+            # w23 = nn.LayerNorm(w23.shape[-2:]).cuda()(w23)
+
+            w0123 = w01[:, :, :, None] * w23[:, :, None, :]
+            w0123 = w0123.view(self.embed2ket_rank, self.num_embeddings, -1)
+            # w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
+
+            weight = w0123.sum(0)
+            # print("w0123", w0123.size())
+            self.multi_lora_b = w0123.sum(0)[:, : self.out_features]
+            # print("self.multi_lora_b size", self.multi_lora_b)
+            # [:, : self.out_features]
+            # self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
+        elif self.use == "emb2ket_random":
+            select_vector = torch.randint(0, 12, (1, 1))[0].to(self.device)
+            self.multi_lora_b = self.w2v_embedding_layer(select_vector)
+            self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
+        elif self.use == "emb2ketxs_random":
+            select_vector = torch.randint(0, 12, (1, 1))[0].to(self.device)
+            self.multi_lora_b = self.w2xs_embedding_layer(select_vector)
+            self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
+
         if self.scaling_rank == 1 and self.rank == 0:
             # parsimonious implementation for ia3 and lora scaling
             if self.multi_lora_a.requires_grad:
-                hidden = F.linear((input * self.multi_lora_a.flatten()), self.weight, self.bias)
+                # print(self.multi_lora_a.flatten().size())
+                hidden = F.linear(
+                    (input * self.multi_lora_a.flatten()), self.weight, self.bias
+                )
             else:
                 hidden = F.linear(input, self.weight, self.bias)
             if self.multi_lora_b.requires_grad:
+                # print(hidden.size(), self.multi_lora_b.size())
                 hidden = hidden * self.multi_lora_b.flatten()
+
             return hidden
         else:
             # general implementation for lora (adding and scaling)
             weight = self.weight
             if self.scaling_rank:
-                weight = weight * torch.matmul(self.multi_lora_b, self.multi_lora_a) / self.scaling_rank
+                weight = (
+                    weight
+                    * torch.matmul(self.multi_lora_b, self.multi_lora_a)
+                    / self.scaling_rank
+                )
             if self.rank:
                 weight = weight + torch.matmul(self.lora_b, self.lora_a) / self.rank
             return F.linear(input, weight, self.bias)
 
     def extra_repr(self):
-        return "in_features={}, out_features={}, bias={}, rank={}, scaling_rank={}".format(
-            self.in_features, self.out_features, self.bias is not None, self.rank, self.scaling_rank
+        return (
+            "in_features={}, out_features={}, bias={}, rank={}, scaling_rank={}".format(
+                self.in_features,
+                self.out_features,
+                self.bias is not None,
+                self.rank,
+                self.scaling_rank,
+            )
         )
 
 
@@ -62,13 +169,19 @@ def modify_with_lora(transformer, config):
         if re.fullmatch(config.lora_modules, m_name):
             for c_name, layer in dict(module.named_children()).items():
                 if re.fullmatch(config.lora_layers, c_name):
+                    # print(c_name, layer)
                     assert isinstance(
                         layer, nn.Linear
                     ), f"LoRA can only be applied to torch.nn.Linear, but {layer} is {type(layer)}."
                     setattr(
                         module,
                         c_name,
-                        LoRALinear(layer, config.lora_rank, config.lora_scaling_rank, config.lora_init_scale),
+                        LoRALinear(
+                            layer,
+                            config.lora_rank,
+                            config.lora_scaling_rank,
+                            config.lora_init_scale,
+                        ),
                     )
     return transformer
 
@@ -80,54 +193,55 @@ if __name__ == "__main__":
         def __init__(self):
             self.lora_rank = 4
             self.lora_init_scale = 0.01
-            self.lora_modules = ".*SelfAttention|.*EncDecAttention"
-            self.lora_layers = "q|k|v|o"
+            self.lora_modules = ".*SelfAttention|.*EncDecAttention|.*DenseReluDense"
+            self.lora_layers = "q|k|v|o|w.*"
             self.trainable_param_names = ".*layer_norm.*|.*lora_[ab].*"
             self.lora_scaling_rank = 1
             # lora_modules and lora_layers are speicified with regular expressions
             # see https://www.w3schools.com/python/python_regex.asp for reference
 
     config = LoRAConfig()
-    model = AutoModelForSeq2SeqLM.from_pretrained("t5-small")
-    tokenizer = AutoTokenizer.from_pretrained("t5-small")
+    model_name = "t5-small"  # bigscience/T0_3B
+    # model_name = "bigscience/T0_3B"
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     input_seq = tokenizer(
         ["Applies a linear transformation to the incoming data."],
         return_tensors="pt",
     )
     target_seq = tokenizer(
-        ["Parameters: in_features - size of each input sample. out_features - size of each output sample."],
+        [
+            "Parameters: in_features - size of each input sample. out_features - size of each output sample."
+        ],
         return_tensors="pt",
     )
 
-    print("Old model")
-    print(model)
-    with torch.no_grad():
-        old_outputs = model(
-            input_ids=input_seq.input_ids,
-            decoder_input_ids=target_seq.input_ids[:, :-1],
-            labels=target_seq.input_ids[:, 1:],
-        )
+    # print("Old model")
+    # print(model)
+    # with torch.no_grad():
+    #     old_outputs = model(
+    #         input_ids=input_seq.input_ids,
+    #         decoder_input_ids=target_seq.input_ids[:, :-1],
+    #         labels=target_seq.input_ids[:, 1:],
+    #     )
 
     model = modify_with_lora(model, config)
 
-    print("New model")
-    print(model)
-    with torch.no_grad():
-        new_outputs = model(
-            input_ids=input_seq.input_ids,
-            decoder_input_ids=target_seq.input_ids[:, :-1],
-            labels=target_seq.input_ids[:, 1:],
-        )
+    # print("New model")
+    # print(model)
+    # with torch.no_grad():
+    #     new_outputs = model(
+    #         input_ids=input_seq.input_ids,
+    #         decoder_input_ids=target_seq.input_ids[:, :-1],
+    #         labels=target_seq.input_ids[:, 1:],
+    #     )
 
     print("Trainable parameters")
-    print(
-        [
-            p_name
-            for p_name in dict(model.named_parameters()).keys()
-            if re.fullmatch(config.trainable_param_names, p_name)
-        ]
-    )
+    for p_name in dict(model.named_parameters()).keys():
+        print(p_name)
 
-    print(f"Logits diff {torch.abs(old_outputs.logits - new_outputs.logits).mean():.3f}")
-    print(f"Loss diff old={old_outputs.loss:.3f} new={new_outputs.loss:.3f}")
+    # print(
+    #     f"Logits diff {torch.abs(old_outputs.logits - new_outputs.logits).mean():.3f}"
+    # )
+    # print(f"Loss diff old={old_outputs.loss:.3f} new={new_outputs.loss:.3f}")

@@ -117,7 +117,7 @@ def print_mem_usage(loc):
 class ParseKwargs(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, dict())
-        for value in values:
+        for value in values[0].split():
             key, value = value.split('=')
             getattr(namespace, self.dest)[key] = value
 

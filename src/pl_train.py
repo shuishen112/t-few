@@ -5,7 +5,10 @@ from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
+import sys
+from os import path
 
+sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
 from src.data import FinetuneDataModule, get_dataset_reader, PretrainDataModule
 from src.models.EncoderDecoder import EncoderDecoder
 from src.models.modify_model import modify_transformer
@@ -15,7 +18,9 @@ from src.utils.util import ParseKwargs, set_seeds
 
 def get_transformer(config):
     tokenizer = AutoTokenizer.from_pretrained(config.origin_model)
-    model = AutoModelForSeq2SeqLM.from_pretrained(config.origin_model, low_cpu_mem_usage=True)
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+        config.origin_model, low_cpu_mem_usage=True
+    )
 
     tokenizer.model_max_length = config.max_seq_len
     model = modify_transformer(model, config)
@@ -37,6 +42,9 @@ def main(config):
     else:
         datamodule = FinetuneDataModule(config, tokenizer, dataset_reader)
     model = EncoderDecoder(config, tokenizer, model, dataset_reader)
+    print("Trainable parameters")
+    for p_name in dict(model.named_parameters()).keys():
+        print(p_name)
     logger = TensorBoardLogger(config.exp_dir, name="log")
 
     trainer = Trainer(
@@ -61,14 +69,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config_files", required=True)
     parser.add_argument("-k", "--kwargs", nargs="*", action=ParseKwargs, default={})
+    # parser.add_argument(
+    #     "-c", "--config_files", default="t03b.json+ia3_emb2ket.json+copa.json"
+    # )
+    # parser.add_argument("-k", "--kwargs", nargs="*", action=ParseKwargs, default={})
     args = parser.parse_args()
 
     config = Config(args.config_files, args.kwargs)
     print(f"Start experiment {config.exp_name}")
     # Setup config
-    assert config.compute_strategy in ["none", "ddp", "deepspeed_stage_3_offload", "deepspeed_stage_3"]
+    assert config.compute_strategy in [
+        "none",
+        "ddp",
+        "deepspeed_stage_3_offload",
+        "deepspeed_stage_3",
+    ]
     if config.fishmask_mode == "create":
-        print("Detecting fishmask_mode=create, override batch_size, num_step, fishmask_path")
+        print(
+            "Detecting fishmask_mode=create, override batch_size, num_step, fishmask_path"
+        )
         config.batch_size = 1
         config.num_steps = config.num_shot
         config.eval_before_training = False

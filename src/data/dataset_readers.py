@@ -9,8 +9,8 @@ import csv
 from typing import Dict, List, Optional, Tuple
 import re
 import pandas as pd
-
-
+# os.environ['TRANSFORMERS_CACHE'] = '~./cache/'
+os.environ["HF_HOME"] = "~./cache/"
 def get_dataset_reader(config):
     dataset_class = {
         "T0Mixture": T0MixtureReader,
