@@ -7,5 +7,6 @@
     "trainable_param_names": ".*lora_b.*",
     "model_modifier": "lora",
     "lr": 3e-3,
-    "num_steps": 1000
+    "num_steps": 1000,
+    "eval_epoch_interval": 50
 }

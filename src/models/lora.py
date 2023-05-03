@@ -8,7 +8,7 @@ from os import path
 
 sys.path.append(path.abspath(__file__))
 
-import src.models.word2ket as w2k
+# import src.models.word2ket as w2k
 import math
 
 
@@ -21,27 +21,14 @@ class LoRALinear(nn.Module):
         self.scaling_rank = scaling_rank
         self.weight = linear_layer.weight
         self.bias = linear_layer.bias
-        self.w2v_embedding_layer = w2k.EmbeddingKet(
-            num_embeddings=12,
-            embedding_dim=linear_layer.out_features,
-            order=4,
-            rank=5,
-            # device="cpu",
-        )
 
-        # self.w2xs_embedding_layer = w2k.EmbeddingKetXS(
-        #     num_embeddings=12,
-        #     embedding_dim=linear_layer.out_features,
-        #     order=4,
-        #     rank=5,
-        # )
-
-        self.order = 4
+        self.order = 2
         self.embed2ket_rank = 1
-        self.num_embeddings = 1
-        self.device = "cuda"
-        self.use = "emb2ket_random"
 
+        self.device = "cuda"
+        self.use = "emb2ket"
+        self.tensor_rank = 1
+        # self.layernorm = nn.LayerNorm(self.in_features)
         if self.rank > 0:
             self.lora_a = nn.Parameter(
                 torch.randn(rank, linear_layer.in_features) * init_scale
@@ -82,10 +69,10 @@ class LoRALinear(nn.Module):
                     )
                     print("leaf_dim", self.embedding_dim_leaf)
                     self.weight_leafs = nn.Parameter(
-                        torch.ones(  # TODO:  During backward do we need all of these parameters to be loaded ? can we do better?
+                        torch.ones(
                             self.order,
                             self.embed2ket_rank,
-                            self.num_embeddings,
+                            1,
                             self.embedding_dim_leaf,
                         )
                     )
@@ -94,36 +81,41 @@ class LoRALinear(nn.Module):
     def forward(self, input):
         if self.use == "emb2ket":
             w = self.weight_leafs
-            # print("w", w.size())
-            w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
-            # print("w01 part", w[0, :, :, :, None].size())
-            # print("w02 part", w[1, :, :, None, :].size())
-            # print("w01", w01.size())
-            w01 = w01.view(self.embed2ket_rank, self.num_embeddings, -1)
-            # w01 = nn.LayerNorm(w01.shape[-2:]).cuda()(w01)
-
-            w23 = w[2, :, :, :, None] * w[3, :, :, None, :]
-            w23 = w23.view(self.embed2ket_rank, self.num_embeddings, -1)
-            # w23 = nn.LayerNorm(w23.shape[-2:]).cuda()(w23)
-
-            w0123 = w01[:, :, :, None] * w23[:, :, None, :]
-            w0123 = w0123.view(self.embed2ket_rank, self.num_embeddings, -1)
-            # w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
-
-            weight = w0123.sum(0)
-            # print("w0123", w0123.size())
-            self.multi_lora_b = w0123.sum(0)[:, : self.out_features]
-            # print("self.multi_lora_b size", self.multi_lora_b)
-            # [:, : self.out_features]
-            # self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
-        elif self.use == "emb2ket_random":
-            select_vector = torch.randint(0, 12, (1, 1))[0].to(self.device)
-            self.multi_lora_b = self.w2v_embedding_layer(select_vector)
-            self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
-        elif self.use == "emb2ketxs_random":
-            select_vector = torch.randint(0, 12, (1, 1))[0].to(self.device)
-            self.multi_lora_b = self.w2xs_embedding_layer(select_vector)
-            self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
+            if self.order == 2:
+                w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
+                w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
+                # w01 = nn.LayerNorm(w01.shape[-2:]).cuda()(w01)
+                weight = w01.sum(0)
+                self.multi_lora_b = weight[:, : self.out_features]
+            elif self.order == 4:
+                w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
+                w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
+                # w01 = nn.LayerNorm(w01.shape[-2:]).cuda()(w01)
+                w23 = w[2, :, :, :, None] * w[3, :, :, None, :]
+                w23 = w23.view(self.embed2ket_rank, self.tensor_rank, -1)
+                # w23 = nn.LayerNorm(w23.shape[-2:]).cuda()(w23)
+                w0123 = w01[:, :, :, None] * w23[:, :, None, :]
+                w0123 = w0123.view(self.embed2ket_rank, self.tensor_rank, -1)
+                # w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
+                weight = w0123.sum(0)
+                self.multi_lora_b = w0123.sum(0)[:, : self.out_features]
+            elif self.order == 8:
+                w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
+                w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
+                w23 = w[2, :, :, :, None] * w[3, :, :, None, :]
+                w23 = w23.view(self.embed2ket_rank, self.tensor_rank, -1)
+                w45 = w[4, :, :, :, None] * w[5, :, :, None, :]
+                w45 = w45.view(self.embed2ket_rank, self.tensor_rank, -1)
+                w67 = w[6, :, :, :, None] * w[7, :, :, None, :]
+                w67 = w67.view(self.embed2ket_rank, self.tensor_rank, -1)
+                w0123 = w01[:, :, :, None] * w23[:, :, None, :]
+                w0123 = w0123.view(self.embed2ket_rank, self.tensor_rank, -1)
+                w4567 = w45[:, :, :, None] * w67[:, :, None, :]
+                w4567 = w4567.view(self.embed2ket_rank, self.tensor_rank, -1)
+                w01234567 = w0123[:, :, :, None] * w4567[:, :, None, :]
+                w01234567 = w01234567.view(self.embed2ket_rank, self.tensor_rank, -1)
+                weight = w01234567.sum(0)
+                self.multi_lora_b = weight[:, : self.out_features]
 
         if self.scaling_rank == 1 and self.rank == 0:
             # parsimonious implementation for ia3 and lora scaling

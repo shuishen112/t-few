@@ -49,7 +49,7 @@ def main(config):
 
     trainer = Trainer(
         enable_checkpointing=False,
-        gpus=torch.cuda.device_count(),
+        gpus=1,
         precision=config.compute_precision,
         amp_backend="native",
         strategy=config.compute_strategy if config.compute_strategy != "none" else None,
@@ -73,9 +73,11 @@ if __name__ == "__main__":
     #     "-c", "--config_files", default="t03b.json+ia3_emb2ket.json+copa.json"
     # )
     # parser.add_argument("-k", "--kwargs", nargs="*", action=ParseKwargs, default={})
+    parser.add_argument("-g", "--gpus", default=0)
     args = parser.parse_args()
 
     config = Config(args.config_files, args.kwargs)
+    print(args.config_files, args.kwargs)
     print(f"Start experiment {config.exp_name}")
     # Setup config
     assert config.compute_strategy in [

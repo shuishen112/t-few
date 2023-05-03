@@ -300,22 +300,22 @@ class EncoderDecoder(LightningModule):
             else:
                 model_fname = os.path.join(self.config.exp_dir, f"global_step{self.global_step}.pt")
 
-            if self.use_deepspeed or self.use_ddp:
-                distributed_save_path = os.path.join(self.config.exp_dir, "saved_model")
-                self.trainer.model.save_checkpoint(distributed_save_path)
-                torch.distributed.barrier()
-                if dist.get_rank() == 0:
-                    trainable_states = zero_to_fp32.get_fp32_state_dict_from_zero_checkpoint(distributed_save_path)
-                    prefix_length = len("module.model.")
-                    trainable_states = {k[prefix_length:]: v for k, v in trainable_states.items()}
-                    torch.save(trainable_states, model_fname)
-            else:
-                trainable_states = {
-                    param_name: param_weight.cpu()
-                    for param_name, param_weight in self.model.state_dict().items()
-                    if param_name in self.trainable_param_names
-                }
-                torch.save(trainable_states, model_fname)
+            # if self.use_deepspeed or self.use_ddp:
+            #     distributed_save_path = os.path.join(self.config.exp_dir, "saved_model")
+            #     self.trainer.model.save_checkpoint(distributed_save_path)
+            #     torch.distributed.barrier()
+            #     if dist.get_rank() == 0:
+            #         trainable_states = zero_to_fp32.get_fp32_state_dict_from_zero_checkpoint(distributed_save_path)
+            #         prefix_length = len("module.model.")
+            #         trainable_states = {k[prefix_length:]: v for k, v in trainable_states.items()}
+            #         torch.save(trainable_states, model_fname)
+            # else:
+            trainable_states = {
+                param_name: param_weight.cpu()
+                for param_name, param_weight in self.model.state_dict().items()
+                if param_name in self.trainable_param_names
+            }
+            torch.save(trainable_states, model_fname)
 
             self._last_global_step_saved = self.global_step
 

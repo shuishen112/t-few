@@ -11,7 +11,11 @@ def make_result_table(args):
     def collect_exp_scores(exp_name_template, datasets):
         print("=" * 80)
         all_files = glob(
-            os.path.join(os.getenv("OUTPUT_PATH", default="exp_out"), exp_name_template, "dev_scores.json")
+            os.path.join(
+                os.getenv("OUTPUT_PATH", default="exp_out"),
+                exp_name_template,
+                "dev_scores.json",
+            )
         )
         print(f"Find {len(all_files)} experiments fit into {exp_name_template}")
 
@@ -32,8 +36,11 @@ def make_result_table(args):
             acc_by_dataset[dataset].append(result)
 
         def result_str(acc_list):
+            print(acc_list)
             if len(acc_list) > 1:
                 return f"{median(acc_list) * 100:.2f} ({iqr(acc_list) * 100:.2f})"
+            elif len(acc_list) == 0:
+                return str(0.0)
             else:
                 return f"{acc_list[0] * 100:.2f}"
 
@@ -42,14 +49,24 @@ def make_result_table(args):
             acc_list = acc_by_dataset[dataset]
             outputs.append(result_str(acc_list))
 
-        print(", ".join([f"{dataset}: {value}" for dataset, value in zip(datasets, outputs)]))
+        print(
+            ", ".join(
+                [f"{dataset}: {value}" for dataset, value in zip(datasets, outputs)]
+            )
+        )
+        # print("output",outputs)
         return ",".join(outputs)
 
     csv_lines = ["template," + (",".join(args.datasets))]
     for exp_name_template in args.exp_name_templates:
-        csv_lines.append(f"{exp_name_template}," + collect_exp_scores(exp_name_template, args.datasets))
+        csv_lines.append(
+            f"{exp_name_template},"
+            + collect_exp_scores(exp_name_template, args.datasets)
+        )
 
-    output_fname = os.path.join(os.getenv("OUTPUT_PATH", default="exp_out"), "summary.csv")
+    output_fname = os.path.join(
+        os.getenv("OUTPUT_PATH", default="exp_out"), "summary_word2ket_order2.csv"
+    )
     with open(output_fname, "w") as f:
         for line in csv_lines:
             f.write(line + "\n")
@@ -58,11 +75,19 @@ def make_result_table(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name_templates", default="t03b_*_finetune", required=True)
     parser.add_argument(
-        "-d", "--datasets", default="copa,h-swag,storycloze,winogrande,wsc,wic,rte,cb,anli-r1,anli-r2,anli-r3"
+        "-e",
+        "--exp_name_templates",
+        default="word2ketorder2*_pretrained100k",
+        # required=True,
+    )
+    parser.add_argument(
+        "-d",
+        "--datasets",
+        default="copa,h-swag,storycloze,winogrande,wsc,wic,rte,cb,anli-r1,anli-r2,anli-r3",
     )
     args = parser.parse_args()
     args.exp_name_templates = args.exp_name_templates.split(",")
+    print(args.exp_name_templates)
     args.datasets = args.datasets.split(",")
     make_result_table(args)

@@ -56,7 +56,6 @@ story_cloze,2016,story_completion,,BASE,
 hellaswag,,story_completion,GPT_EVAL,BASE,39905
 common_gen,,structure_to_text,BASE,,67389
 wiki_bio,,structure_to_text,BASE,,582659
-cnn_dailymail,3.0.0,summarization,BASE,,287113
 gigaword,,summarization,BASE,,3803957
 multi_news,,summarization,BASE,,44972
 samsum,,summarization,BASE,,14732
