@@ -13,7 +13,7 @@ import math
 
 
 class LoRALinear(nn.Module):
-    def __init__(self, linear_layer, rank, scaling_rank, init_scale):
+    def __init__(self, linear_layer, rank, scaling_rank, init_scale, order, core):
         super().__init__()
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
@@ -22,11 +22,10 @@ class LoRALinear(nn.Module):
         self.weight = linear_layer.weight
         self.bias = linear_layer.bias
 
-        self.order = 2
+        self.order = order
         self.embed2ket_rank = 1
 
-        self.device = "cuda"
-        self.use = "emb2ket"
+        self.use = core
         self.tensor_rank = 1
         # self.layernorm = nn.LayerNorm(self.in_features)
         if self.rank > 0:
@@ -173,6 +172,8 @@ def modify_with_lora(transformer, config):
                             config.lora_rank,
                             config.lora_scaling_rank,
                             config.lora_init_scale,
+                            config.order,
+                            config.core,
                         ),
                     )
     return transformer
