@@ -6,4 +6,4 @@ do
     done
 done
 
-
+# python -m src.pl_train -c t03b.json+ia3_emb2ket.json+copa.json -k load_weight="t03b_pretrain_emb2ket/global_step80000.pt" exp_name=t03b_copa_seed_1024__pretrained100k few_shot_random_seed=1024 seed=1024 allow_skip_exp=False

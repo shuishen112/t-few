@@ -8,7 +8,7 @@
     "model_modifier": "lora",
     "lr": 3e-3,
     "num_steps": 1000,
-    "eval_epoch_interval": 4,
+    "eval_epoch_interval": 50,
     "order": 2,
     "core": "emb2ket"
 }
