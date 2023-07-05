@@ -34,6 +34,7 @@ class Config(object):
         self.cleaned_answer_choices_b77 = False
         self.order=2
         self.core = "ia3"
+        self.embed2ket_rank = 2
 
         # Compute backend configs
         self.compute_precision = "bf16"

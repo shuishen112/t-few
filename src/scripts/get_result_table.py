@@ -78,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-e",
         "--exp_name_templates",
-        default="word2ketorder2*_pretrained100k",
+        default="t03b_*_ia3_pretrained100k",
         # required=True,
     )
     parser.add_argument(

@@ -13,7 +13,7 @@ import math
 
 
 class LoRALinear(nn.Module):
-    def __init__(self, linear_layer, rank, scaling_rank, init_scale, order, core):
+    def __init__(self, linear_layer, rank, scaling_rank, init_scale, order, core, embed2ket_rank):
         super().__init__()
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
@@ -23,10 +23,14 @@ class LoRALinear(nn.Module):
         self.bias = linear_layer.bias
 
         self.order = order
-        self.embed2ket_rank = 2
+        self.embed2ket_rank = embed2ket_rank
 
         self.use = core
-        self.tensor_rank = 4
+        # if it is lora
+        if self.rank > 0: 
+            self.tensor_rank = self.rank
+        else:
+            self.tensor_rank = self.scaling_rank
         # self.layernorm = nn.LayerNorm(self.in_features)
         if self.rank > 0:
             self.lora_a = nn.Parameter(
@@ -137,7 +141,7 @@ class LoRALinear(nn.Module):
     def forward(self, input):
 
         if self.use == "emb2ket":
-            self.multi_lora_b = self.tensor_product_represent()
+            self.multi_lora_b = self.tensor_product_represent().flatten()[:self.out_features]
         elif self.use == "adapter2ket":
             self.lora_b = self.tensor_product_represent()
             self.lora_b = self.lora_b.transpose(1, 0)
@@ -200,6 +204,7 @@ def modify_with_lora(transformer, config):
                             config.lora_init_scale,
                             config.order,
                             config.core,
+                            config.embed2ket_rank,
                         ),
                     )
     return transformer
