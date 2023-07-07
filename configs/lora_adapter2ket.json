@@ -9,5 +9,6 @@
     "num_steps": 1000,
     "eval_epoch_interval": 50,
     "order": 2,
-    "core": "adapter2ket"
+    "core": "adapter2ket",
+    "embed2ket_rank": 1
 }
