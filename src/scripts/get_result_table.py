@@ -65,7 +65,7 @@ def make_result_table(args):
         )
 
     output_fname = os.path.join(
-        os.getenv("OUTPUT_PATH", default="exp_out"), "summary_word2ket_order2.csv"
+        os.getenv("OUTPUT_PATH", default="exp_out"), f"summary_{args.name}.csv"
     )
     with open(output_fname, "w") as f:
         for line in csv_lines:
@@ -78,13 +78,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "-e",
         "--exp_name_templates",
-        default="t03b_*_lora_emb2ket_pretrained100k",
+        default="t03b_*_lora_adapter2ket_without_pretrained100k",
         # required=True,
     )
     parser.add_argument(
         "-d",
         "--datasets",
         default="copa,h-swag,storycloze,winogrande,wsc,wic,rte,cb,anli-r1,anli-r2,anli-r3",
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        default="adapter2ket",
     )
     args = parser.parse_args()
     args.exp_name_templates = args.exp_name_templates.split(",")
