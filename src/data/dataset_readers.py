@@ -198,7 +198,7 @@ class StoryClozeReader(BaseDatasetReader):
             orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
         else:
             orig_data = load_dataset(
-                *self.dataset_stash, split=split, data_dir="/projects/futhark1/data/wzm289/code/t-few/data/storycloze/SC"
+                *self.dataset_stash, split=split, data_dir="data/storycloze/SC"
             )
         orig_data = [example for example in orig_data]
         for idx, example in enumerate(orig_data):

@@ -135,6 +135,8 @@ class ParseKwargs(argparse.Action):
         setattr(namespace, self.dest, dict())
         # for value in values[0].split():
         # for value in values:
+        if len(values) == 1 and ' ' in values[0]:
+            values = values[0].split()
         for value in values:
             key, value = value.split("=")
             getattr(namespace, self.dest)[key] = value
