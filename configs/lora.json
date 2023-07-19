@@ -7,5 +7,6 @@
     "model_modifier": "lora",
     "lr": 3e-3,
     "num_steps": 1000,
+    "eval_epoch_interval": 50,
     "core": "lora"
 }
