@@ -5,6 +5,7 @@ from scipy.stats import iqr
 from numpy import median
 import os
 import argparse
+import numpy as np
 
 
 def make_result_table(args):
@@ -36,13 +37,14 @@ def make_result_table(args):
             acc_by_dataset[dataset].append(result)
 
         def result_str(acc_list):
-            print(acc_list)
+            
             if len(acc_list) > 1:
-                return f"{median(acc_list) * 100:.2f} ({iqr(acc_list) * 100:.2f})"
+                # return f"{median(acc_list) * 100:.1f} ({iqr(acc_list) * 100:.1f})"
+                return f"{median(acc_list) * 100:.1f}"
             elif len(acc_list) == 0:
                 return str(0.0)
             else:
-                return f"{acc_list[0] * 100:.2f}"
+                return f"{acc_list[0] * 100:.1f}"
 
         outputs = []
         for dataset in datasets:
@@ -50,8 +52,13 @@ def make_result_table(args):
             outputs.append(result_str(acc_list))
 
         print(
-            ", ".join(
+            "&".join(
                 [f"{dataset}: {value}" for dataset, value in zip(datasets, outputs)]
+            )
+        )
+        print(
+            "&".join(
+                [f"{value}" for dataset, value in zip(datasets, outputs)]
             )
         )
         # print("output",outputs)
