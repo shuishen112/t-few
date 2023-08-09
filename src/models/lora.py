@@ -22,6 +22,7 @@ class LoRALinear(nn.Module):
         self.weight = linear_layer.weight
         self.bias = linear_layer.bias
 
+        self._scale = None
         self.order = order
         self.embed2ket_rank = embed2ket_rank
 
@@ -77,7 +78,6 @@ class LoRALinear(nn.Module):
                     )
                     print("self.weight_leafs_size", self.weight_leafs_b.size())
 
-            
         if self.scaling_rank:
             self.multi_lora_a = nn.Parameter(
                 torch.ones(self.scaling_rank, linear_layer.in_features)
@@ -152,6 +152,7 @@ class LoRALinear(nn.Module):
             w01234567 = w0123[:, :, :, None] * w4567[:, :, None, :]
             w01234567 = w01234567.view(self.embed2ket_rank, self.tensor_rank, -1)
             weight = w01234567.sum(0)
+
         if signal == "output":
             tpr = weight[:, : self.out_features]
         elif signal == "input":
@@ -163,7 +164,12 @@ class LoRALinear(nn.Module):
     def forward(self, input):
 
         if self.use == "emb2ket":
-            self.multi_lora_b = self.tensor_product_represent().flatten()[:self.out_features]
+            # ia3 like
+            self.multi_lora_b = self.tensor_product_represent(self.weight_leafs).flatten()
+            if self._scale is None:
+                self._scale = 1. / self.multi_lora_b.mean()
+            self.multi_lora_b = self._scale * self.multi_lora_b
+
         elif self.use == "adapter2ket":
             self.lora_a = self.tensor_product_represent(self.weight_leafs_a, signal = "input")
             self.lora_b = self.tensor_product_represent(self.weight_leafs_b,signal="output")
