@@ -1,5 +1,6 @@
 {
     "trainable_param_names": ".*layer_norm.*",
-    "lr": 3e-4,
-    "num_steps": 1000
+    "lr": 3e-3,
+    "num_steps": 1000,
+    "eval_epoch_interval": 50
 }

@@ -31,10 +31,14 @@ class LoRALinear(nn.Module):
             (self.embedding_size_b) ** (1 / self.order)
         )
 
+        # print(f"leaf_dim_leaf_b: {self.embedding_dim_leaf_b} original embedding:{self.embedding_size_b}")
+
         self.embedding_size_a = linear_layer.in_features
         self.embedding_dim_leaf_a = math.ceil(
             (self.embedding_size_a) ** (1 / self.order)
         )
+
+        # print(f"leaf_dim_leaf_a: {self.embedding_dim_leaf_a} original embedding:{self.embedding_size_a}")
 
         # if it is lora
         if self.rank > 0: 
@@ -66,9 +70,9 @@ class LoRALinear(nn.Module):
                     self.lora_b = nn.Parameter(torch.zeros(linear_layer.out_features, rank))
                 elif self.use == "adapter2ket":
                     
-                    print("leaf_dim", self.embedding_dim_leaf_b)
+                    
                     self.weight_leafs_b = nn.Parameter(
-                        torch.zeros(
+                        torch.randn(
                             self.order,
                             self.embed2ket_rank,
                             self.rank,
@@ -106,7 +110,7 @@ class LoRALinear(nn.Module):
                     self.embedding_dim_leaf = math.ceil(
                         (self.embedding_size) ** (1 / self.order)
                     )
-                    print("leaf_dim", self.embedding_dim_leaf)
+                    print(f"leaf_dim :{self.embedding_dim_leaf} original embedding size: {linear_layer.out_features}", )
                     self.weight_leafs = nn.Parameter(
                         torch.ones(
                             self.order,
@@ -124,7 +128,6 @@ class LoRALinear(nn.Module):
             w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
             # w01 = nn.LayerNorm(w01.shape[-2:]).cuda()(w01)
             weight = w01.sum(0)
-            tpr = weight[:, : self.out_features]
         elif self.order == 4:
             w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
             w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
@@ -134,7 +137,7 @@ class LoRALinear(nn.Module):
             # w23 = nn.LayerNorm(w23.shape[-2:]).cuda()(w23)
             w0123 = w01[:, :, :, None] * w23[:, :, None, :]
             w0123 = w0123.view(self.embed2ket_rank, self.tensor_rank, -1)
-            # w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
+            w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
             weight = w0123.sum(0)
         elif self.order == 8:
             w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
