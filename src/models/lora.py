@@ -41,6 +41,13 @@ class LoRALinear(nn.Module):
 
         # print(f"leaf_dim_leaf_a: {self.embedding_dim_leaf_a} original embedding:{self.embedding_size_a}")
 
+        self.layerone_normalization_a = nn.LayerNorm(
+            normalized_shape=[self.rank, self.embedding_dim_leaf_a**2])
+        # self.layertwo_normalization_a = nn.LayerNorm(
+        #     normalized_shape=[self.rank, self.embedding_dim_leaf_a**2])
+        self.layerone_normalization_b = nn.LayerNorm(
+            normalized_shape=[self.rank, self.embedding_dim_leaf_b**2])
+
         # if it is lora
         if self.rank > 0: 
             self.tensor_rank = self.rank
@@ -120,12 +127,32 @@ class LoRALinear(nn.Module):
                         )
                     )
                     print("self.weight_leafs_size", self.weight_leafs.size())
+        if self.use == "adapter2ket":
+            self.reset_parameters()
+    def reset_parameters(self):
+        gain = nn.init.calculate_gain(
+            nonlinearity="leaky_relu", param=math.sqrt(5))
+        # std = gain / math.sqrt(self.in_features)
+        std = gain / (self.in_features ** (1/self.order))
+
+        with torch.no_grad():
+            self.weight_leafs_a.uniform_(-std, std)
+            # torch.nn.init.kaiming_normal_(self.weight_leafs_a)
+
+        with torch.no_grad():
+            self.weight_leafs_b.uniform_(-std, std)
+            # torch.nn.init.kaiming_normal_(self.weight_leafs_b)
     
     def tensor_product_represent(self,w, signal = "output"):
         
         if self.order == 2:
             w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
             w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
+
+            if signal == "input":
+                w01 = self.layerone_normalization_a(w01)
+            elif signal == "output":
+                w01 = self.layerone_normalization_b(w01)
             # w01 = nn.LayerNorm(w01.shape[-2:]).cuda()(w01)
             weight = w01.sum(0)
         elif self.order == 4:
@@ -137,7 +164,7 @@ class LoRALinear(nn.Module):
             # w23 = nn.LayerNorm(w23.shape[-2:]).cuda()(w23)
             w0123 = w01[:, :, :, None] * w23[:, :, None, :]
             w0123 = w0123.view(self.embed2ket_rank, self.tensor_rank, -1)
-            w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
+            # w0123 = nn.LayerNorm(w0123.shape[-2:]).cuda()(w0123)
             weight = w0123.sum(0)
         elif self.order == 8:
             w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
