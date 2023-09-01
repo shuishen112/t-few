@@ -42,6 +42,18 @@ class TensorizedLoRA(nn.Module):
             )
         )
 
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        gain = nn.init.calculate_gain(
+            nonlinearity="leaky_relu", param=math.sqrt(5))
+        # std = gain / math.sqrt(self.in_features)
+        std = gain / (self.in_features ** (1/self.order))
+
+        with torch.no_grad():
+            self.weight_leafs.uniform_(-std, std)
+            # torch.nn.init.kaiming_normal_(self.weight_leafs_a)
+
     def reproduce_weight(self):
 
         # now we use default order=4
@@ -71,7 +83,7 @@ class TensorizedLoRA(nn.Module):
         weight = self.weight
 
         tensor_weight = self.reproduce_weight()
-        tensor_weight = tensor_weight.transpose(0,1)
+        tensor_weight = tensor_weight.transpose(0, 1)
         weight = weight + tensor_weight
 
         return F.linear(input, weight, self.bias)
