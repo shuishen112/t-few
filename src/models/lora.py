@@ -17,17 +17,18 @@ class TensorizedLoRA(nn.Module):
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
         self.rank = rank
+        self.order = order
         self.tensor_rank = tensor_rank
         self.scaling_rank = scaling_rank
         self.weight = linear_layer.weight
         self.bias = linear_layer.bias
 
         self.embedding_dim_leaf_a = math.ceil(
-            (linear_layer.in_features) ** (1 / self.order)
+            (self.in_features) ** (1 / self.order)
         )
 
         self.embedding_dim_leaf_b = math.ceil(
-            (linear_layer.out_features) ** (1 / self.order)
+            (self.out_features) ** (1 / self.order)
         )
 
         # define the training leaves
