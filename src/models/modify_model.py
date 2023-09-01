@@ -3,6 +3,7 @@ from .adapters import modify_with_adapters
 from .bitfit import modify_with_bitfit
 from .prompt_tuning import modify_with_prompt_tuning
 from .prefix_tuning import modify_with_prefix_tuning
+from .lora import modify_with_tensorlora
 
 modifier_dict = {
     "lora": modify_with_lora,
@@ -10,6 +11,7 @@ modifier_dict = {
     "adapters": modify_with_adapters,
     "prompt-tuning": modify_with_prompt_tuning,
     "prefix-tuning": modify_with_prefix_tuning,
+    "tensorlora": modify_with_tensorlora,
 }
 
 
@@ -21,8 +23,10 @@ def modify_transformer(transformer, config):
 
     if config.model_modifier:
         if config.model_modifier in modifier_dict:
-            transformer = modifier_dict[config.model_modifier](transformer, config)
+            transformer = modifier_dict[config.model_modifier](
+                transformer, config)
         else:
-            raise ValueError(f"Model modifier '{config.model_modifier}' not found.")
+            raise ValueError(
+                f"Model modifier '{config.model_modifier}' not found.")
 
     return transformer

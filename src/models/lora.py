@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,10 +10,112 @@ from os import path
 sys.path.append(path.abspath(__file__))
 
 # import src.models.word2ket as w2k
-import math
+
+
+class TensorizedLoRA(nn.Module):
+    def __init__(self, linear_layer, rank, scaling_rank, init_scale, order, tensor_rank):
+        self.in_features = linear_layer.in_features
+        self.out_features = linear_layer.out_features
+        self.rank = rank
+        self.tensor_rank = tensor_rank
+        self.scaling_rank = scaling_rank
+        self.weight = linear_layer.weight
+        self.bias = linear_layer.bias
+
+        self.embedding_dim_leaf_a = math.ceil(
+            (linear_layer.in_features) ** (1 / self.order)
+        )
+
+        self.embedding_dim_leaf_b = math.ceil(
+            (linear_layer.out_features) ** (1 / self.order)
+        )
+
+        # define the training leaves
+        self.weight_leafs = nn.Parameter(
+            torch.randn(
+                self.order,
+                self.tensor_rank,
+                self.embedding_dim_leaf_a,
+                self.embedding_dim_leaf_b,
+            )
+        )
+
+    def reproduce_weight(self):
+
+        # now we use default order=4
+
+        w = self.weight_leafs
+        z1 = torch.einsum('lij,rmn->rimjn', w[0], w[1])
+
+        # reshpae the tensor
+        z1 = z1.view(self.tensor_rank, self.embedding_dim_leaf_a **
+                     2, self.embedding_dim_leaf_b**2)
+        z2 = torch.einsum('lij,rmn->rimjn', w[2], w[3])
+        # reshpae the tensor
+        z2 = z2.view(self.tensor_rank, self.embedding_dim_leaf_a **
+                     2, self.embedding_dim_leaf_b**2)
+        # merge the two sub trees
+        zzz = torch.einsum('lij,rmn->rimjn', z1, z2)
+
+        # reshpae the tensor
+        zzz = zzz.view(self.tensor_rank, self.embedding_dim_leaf_a ** 4,
+                       self.embedding_dim_leaf_b**4)
+
+        zzz = zzz.sum(0)[:self.in_features, :self.out_features]
+
+        return zzz
+
+    def forward(self, input):
+        weight = self.weight
+
+        tensor_weight = self.reproduce_weight()
+
+        weight = weight + tensor_weight
+
+        return F.linear(input, weight, self.bias)
 
 
 class LoRALinear(nn.Module):
+    """
+    Lora module for tensor factorization.
+
+    Args:
+        linear_layer (nn.Linear): Linear layer to be factorized.
+        rank (int): Rank of the tensor factorization.
+        scaling_rank (int): Scaling rank of the tensor factorization.
+        init_scale (float): Initialization scale for the tensor factorization.
+        order (int): Order of the tensor factorization.
+        core (str): Core type of the tensor factorization.
+        embed2ket_rank (int): tensor rank of the tensor factorization.
+
+    Attributes:
+        in_features (int): Number of input features.
+        out_features (int): Number of output features.
+        rank (int): Rank of the lora.
+        scaling_rank (int): Scaling rank of the tensor factorization.
+        weight (torch.Tensor): Weight tensor of the linear layer.
+        bias (torch.Tensor): Bias tensor of the linear layer.
+        _scale (None): Scale attribute.
+        order (int): Order of the tensor factorization.
+        embed2ket_rank (int): tnesor rank of the tensor factorization.
+        use (str): Core type of the tensor factorization.
+        embedding_size_b (int): Embedding size of the output features.
+        embedding_dim_leaf_b (int): Embedding dimension of the output features.
+        embedding_size_a (int): Embedding size of the input features.
+        embedding_dim_leaf_a (int): Embedding dimension of the input features.
+        layerone_normalization_a (nn.LayerNorm): Layer normalization for the input features.
+        layerone_normalization_b (nn.LayerNorm): Layer normalization for the output features.
+        tensor_rank (int): Rank of the tensor factorization.
+        lora_a (nn.Parameter): Lora parameter for the input features.
+        lora_b (nn.Parameter): Lora parameter for the output features.
+        weight_leafs_a (nn.Parameter): Weight leafs for the input features.
+        weight_leafs_b (nn.Parameter): Weight leafs for the output features.
+        multi_lora_a (nn.Parameter): Multi-lora parameter for the input features.
+        multi_lora_b (nn.Parameter): Multi-lora parameter for the output features.
+        weight_leafs (nn.Parameter): Weight leafs for the tensor factorization.
+
+    """
+
     def __init__(self, linear_layer, rank, scaling_rank, init_scale, order, core, embed2ket_rank):
         super().__init__()
         self.in_features = linear_layer.in_features
@@ -32,33 +135,21 @@ class LoRALinear(nn.Module):
             (self.embedding_size_b) ** (1 / self.order)
         )
 
-        # print(f"leaf_dim_leaf_b: {self.embedding_dim_leaf_b} original embedding:{self.embedding_size_b}")
-
         self.embedding_size_a = linear_layer.in_features
         self.embedding_dim_leaf_a = math.ceil(
             (self.embedding_size_a) ** (1 / self.order)
         )
 
-        # print(f"leaf_dim_leaf_a: {self.embedding_dim_leaf_a} original embedding:{self.embedding_size_a}")
-
         self.layerone_normalization_a = nn.LayerNorm(
             normalized_shape=[self.rank, self.embedding_dim_leaf_a**2])
-        # self.layertwo_normalization_a = nn.LayerNorm(
-        #     normalized_shape=[self.rank, self.embedding_dim_leaf_a**2])
         self.layerone_normalization_b = nn.LayerNorm(
             normalized_shape=[self.rank, self.embedding_dim_leaf_b**2])
 
-        # if it is lora
-        if self.rank > 0: 
-            self.tensor_rank = self.rank
-        else:
-            self.tensor_rank = self.scaling_rank
-        # self.layernorm = nn.LayerNorm(self.in_features)
         if self.rank > 0:
-            
             if self.use == "lora":
                 self.lora_a = nn.Parameter(
-                    torch.randn(rank, linear_layer.in_features) * init_scale
+                    torch.randn(
+                        rank, linear_layer.in_features) * init_scale
                 )
             elif self.use == "adapter2ket":
                 self.weight_leafs_a = nn.Parameter(
@@ -71,14 +162,14 @@ class LoRALinear(nn.Module):
                 )
             if init_scale < 0:
                 self.lora_b = nn.Parameter(
-                    torch.randn(linear_layer.out_features, rank) * init_scale
+                    torch.randn(linear_layer.out_features,
+                                rank) * init_scale
                 )
             else:
                 if self.use == "lora":
-                    self.lora_b = nn.Parameter(torch.zeros(linear_layer.out_features, rank))
+                    self.lora_b = nn.Parameter(
+                        torch.zeros(linear_layer.out_features, rank))
                 elif self.use == "adapter2ket":
-                    
-                    
                     self.weight_leafs_b = nn.Parameter(
                         torch.randn(
                             self.order,
@@ -87,37 +178,33 @@ class LoRALinear(nn.Module):
                             self.embedding_dim_leaf_b,
                         )
                     )
-                    print("self.weight_leafs_size", self.weight_leafs_b.size())
 
         if self.scaling_rank:
             self.multi_lora_a = nn.Parameter(
                 torch.ones(self.scaling_rank, linear_layer.in_features)
-                + torch.randn(self.scaling_rank, linear_layer.in_features) * init_scale
+                + torch.randn(self.scaling_rank,
+                              linear_layer.in_features) * init_scale
             )
 
             if init_scale < 0:
                 self.multi_lora_b = nn.Parameter(
-                    torch.ones(linear_layer.out_features, self.scaling_rank)
-                    + torch.randn(linear_layer.out_features, self.scaling_rank)
+                    torch.ones(linear_layer.out_features,
+                               self.scaling_rank)
+                    + torch.randn(linear_layer.out_features,
+                                  self.scaling_rank)
                     * init_scale
                 )
             else:
-                # print("load word2ket")
-                # select_vector = torch.randint(0, 12, (1, 1))[0].to("cuda")
-                # self.multi_lora_b = self.w2v_embedding_layer(select_vector)
-                # self.multi_lora_b = torch.transpose(self.multi_lora_b, 0, 1)
-
                 if self.use == "ia3":
-
                     self.multi_lora_b = nn.Parameter(
-                        torch.ones(linear_layer.out_features, self.scaling_rank)
+                        torch.ones(linear_layer.out_features,
+                                   self.scaling_rank)
                     )
                 elif self.use == "emb2ket":
                     self.embedding_size = linear_layer.out_features
                     self.embedding_dim_leaf = math.ceil(
                         (self.embedding_size) ** (1 / self.order)
                     )
-                    print(f"leaf_dim :{self.embedding_dim_leaf} original embedding size: {linear_layer.out_features}", )
                     self.weight_leafs = nn.Parameter(
                         torch.ones(
                             self.order,
@@ -126,9 +213,10 @@ class LoRALinear(nn.Module):
                             self.embedding_dim_leaf,
                         )
                     )
-                    print("self.weight_leafs_size", self.weight_leafs.size())
+
         if self.use == "adapter2ket":
             self.reset_parameters()
+
     def reset_parameters(self):
         gain = nn.init.calculate_gain(
             nonlinearity="leaky_relu", param=math.sqrt(5))
@@ -142,9 +230,9 @@ class LoRALinear(nn.Module):
         with torch.no_grad():
             self.weight_leafs_b.uniform_(-std, std)
             # torch.nn.init.kaiming_normal_(self.weight_leafs_b)
-    
-    def tensor_product_represent(self,w, signal = "output"):
-        
+
+    def tensor_product_represent(self, w, signal="output"):
+
         if self.order == 2:
             w01 = w[0, :, :, :, None] * w[1, :, :, None, :]
             w01 = w01.view(self.embed2ket_rank, self.tensor_rank, -1)
@@ -180,7 +268,8 @@ class LoRALinear(nn.Module):
             w4567 = w45[:, :, :, None] * w67[:, :, None, :]
             w4567 = w4567.view(self.embed2ket_rank, self.tensor_rank, -1)
             w01234567 = w0123[:, :, :, None] * w4567[:, :, None, :]
-            w01234567 = w01234567.view(self.embed2ket_rank, self.tensor_rank, -1)
+            w01234567 = w01234567.view(
+                self.embed2ket_rank, self.tensor_rank, -1)
             weight = w01234567.sum(0)
 
         if signal == "output":
@@ -195,14 +284,17 @@ class LoRALinear(nn.Module):
 
         if self.use == "emb2ket":
             # ia3 like
-            self.multi_lora_b = self.tensor_product_represent(self.weight_leafs).flatten()
+            self.multi_lora_b = self.tensor_product_represent(
+                self.weight_leafs).flatten()
             if self._scale is None:
                 self._scale = 1. / self.multi_lora_b.mean()
             self.multi_lora_b = self._scale * self.multi_lora_b
 
         elif self.use == "adapter2ket":
-            self.lora_a = self.tensor_product_represent(self.weight_leafs_a, signal = "input")
-            self.lora_b = self.tensor_product_represent(self.weight_leafs_b,signal="output")
+            self.lora_a = self.tensor_product_represent(
+                self.weight_leafs_a, signal="input")
+            self.lora_b = self.tensor_product_represent(
+                self.weight_leafs_b, signal="output")
             self.lora_b = self.lora_b.transpose(1, 0)
 
         if self.scaling_rank == 1 and self.rank == 0:
@@ -229,7 +321,8 @@ class LoRALinear(nn.Module):
                     / self.scaling_rank
                 )
             if self.rank:
-                weight = weight + torch.matmul(self.lora_b, self.lora_a) / self.rank
+                weight = weight + \
+                    torch.matmul(self.lora_b, self.lora_a) / self.rank
             return F.linear(input, weight, self.bias)
 
     def extra_repr(self):
@@ -242,6 +335,30 @@ class LoRALinear(nn.Module):
                 self.scaling_rank,
             )
         )
+
+
+def modify_with_tensorlora(transformer, config):
+    for m_name, module in dict(transformer.named_modules()).items():
+        if re.fullmatch(config.lora_modules, m_name):
+            for c_name, layer in dict(module.named_children()).items():
+                if re.fullmatch(config.lora_layers, c_name):
+                    # print(c_name, layer)
+                    assert isinstance(
+                        layer, nn.Linear
+                    ), f"LoRA can only be applied to torch.nn.Linear, but {layer} is {type(layer)}."
+                    setattr(
+                        module,
+                        c_name,
+                        TensorizedLoRA(
+                            layer,
+                            config.lora_rank,
+                            config.lora_scaling_rank,
+                            config.lora_init_scale,
+                            config.order,
+                            config.embed2ket_rank,
+                        ),
+                    )
+    return transformer
 
 
 def modify_with_lora(transformer, config):
