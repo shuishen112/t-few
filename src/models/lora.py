@@ -14,6 +14,7 @@ sys.path.append(path.abspath(__file__))
 
 class TensorizedLoRA(nn.Module):
     def __init__(self, linear_layer, rank, scaling_rank, init_scale, order, tensor_rank):
+        super().__init__()
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
         self.rank = rank
