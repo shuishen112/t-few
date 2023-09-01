@@ -71,7 +71,7 @@ class TensorizedLoRA(nn.Module):
         weight = self.weight
 
         tensor_weight = self.reproduce_weight()
-
+        tensor_weight = tensor_weight.transpose(0,1)
         weight = weight + tensor_weight
 
         return F.linear(input, weight, self.bias)
