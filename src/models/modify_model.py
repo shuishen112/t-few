@@ -1,3 +1,4 @@
+from .tensorized_module import modify_with_tensorized_module
 from .lora import modify_with_lora
 from .adapters import modify_with_adapters
 from .bitfit import modify_with_bitfit
@@ -10,6 +11,7 @@ modifier_dict = {
     "adapters": modify_with_adapters,
     "prompt-tuning": modify_with_prompt_tuning,
     "prefix-tuning": modify_with_prefix_tuning,
+    "tensorized-module": modify_with_tensorized_module,
 }
 
 
