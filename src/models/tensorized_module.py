@@ -6,33 +6,55 @@ import math
 
 
 class TensorizedModule(nn.Module):
-    def __init__(self, linear_layer, init_scale, order, embed2ket_rank):
+    def __init__(
+        self, linear_layer, rank, init_scale, order_a, order_b, embed2ket_rank
+    ):
         super().__init__()
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
         self.weight = linear_layer.weight
         self.bias = linear_layer.bias
+        self.rank = rank
         self._scale = None
-        self.order = 9
-        self.embed2ket_rank = embed2ket_rank
-        self.embedding_size_b = linear_layer.out_features
-        self.embedding_size_a = linear_layer.in_features
 
-        # self.embedding_dim_leaf_b = math.ceil(
-        #     (self.embedding_size_b) ** (1 / self.order)
-        # )
-        self.embedding_dim_leaf_b = 2
-        self.embedding_size_a = linear_layer.in_features
-        self.embedding_dim_leaf_a = 2
-        # self.embedding_dim_leaf_a = math.ceil(
-        #     (self.embedding_size_a) ** (1 / self.order)
-        # )
+        self.embed2ket_rank = embed2ket_rank
+        # it is note that the a is the output size and b is the input size
+        self.embedding_size_b = linear_layer.in_features
+        self.embedding_size_a = linear_layer.out_features
+
+        self.order_a = order_a
+        self.order_b = order_b
+        if linear_layer.out_features == 2048:
+            self.order_a = 11
+        elif linear_layer.out_features == 512:
+            self.order_a = 10
+        if linear_layer.in_features == 2048:
+            self.order_b = 11
+        elif linear_layer.in_features == 512:
+            self.order_b = 10
+
+        self.embedding_dim_leaf_b = math.ceil(
+            (self.embedding_size_b) ** (1 / self.order_b)
+        )
+
+        self.embedding_dim_leaf_a = math.ceil(
+            (self.embedding_size_a) ** (1 / self.order_a)
+        )
         ###### the adapter is adapter2ket ######
-        self.leaf_tensor = nn.Parameter(
+        self.leaf_tensor_a = nn.Parameter(
             torch.randn(
-                self.order,
+                self.order_a,
                 self.embed2ket_rank,
+                self.rank,
                 self.embedding_dim_leaf_a,
+            )
+        )
+
+        self.leaf_tensor_b = nn.Parameter(
+            torch.randn(
+                self.order_b,
+                self.embed2ket_rank,
+                self.rank,
                 self.embedding_dim_leaf_b,
             )
         )
@@ -40,35 +62,46 @@ class TensorizedModule(nn.Module):
 
     def reset_parameters(self):
         gain = nn.init.calculate_gain(nonlinearity="leaky_relu", param=math.sqrt(5))
-        std = gain / (self.in_features ** (1 / self.order))
+        std = gain / (self.in_features ** (1 / self.order_a))
 
         with torch.no_grad():
-            self.leaf_tensor.uniform_(-std, std)
+            self.leaf_tensor_a.uniform_(-std, std)
+            self.leaf_tensor_b.uniform_(-std, std)
 
-    def tensor_product_represent(self, w):
+    def tensor_product_represent(self, w, order, feature_dim):
         weight_leafs = w
         base = weight_leafs[0]
-        leaf_dim = 2
-        for i in range(1, self.order):
-            leaf_dim = leaf_dim * 2
-            base = torch.einsum("abc,ade->abcde", base, weight_leafs[i]).reshape(
-                self.embed2ket_rank, leaf_dim, leaf_dim
+
+        leaf_dim = weight_leafs.shape[-1]
+        for i in range(1, order):
+            leaf_dim = leaf_dim * leaf_dim
+            base = torch.einsum("abc,abd->abcd", base, weight_leafs[i]).reshape(
+                self.embed2ket_rank, self.rank, -1
             )
 
         base = base.sum(dim=0)
-        tpr = base[: self.out_features, : self.in_features]
+        print("tensor size", base.shape)
+        tpr = base[:, :feature_dim]
         return tpr
 
     def forward(self, input):
-        self.tensoried_module = self.tensor_product_represent(self.leaf_tensor)
-
-        weight = self.weight + self.tensoried_module
+        self.tensoried_module_A = self.tensor_product_represent(
+            self.leaf_tensor_a, self.order_a, self.out_features
+        )
+        self.tensoried_module_B = self.tensor_product_represent(
+            self.leaf_tensor_b, self.order_b, self.in_features
+        )
+        weight = (
+            self.weight
+            + self.tensoried_module_A.transpose(0, 1) @ self.tensoried_module_B
+        )
         return F.linear(input, weight, self.bias)
 
     def extra_repr(self):
-        return "in_features={}, out_features={}, bias={}".format(
+        return "in_features={}, out_features={}, rank={},  bias={}".format(
             self.in_features,
             self.out_features,
+            self.rank,
             self.bias is not None,
         )
 
@@ -87,8 +120,10 @@ def modify_with_tensorized_module(transformer, config):
                         c_name,
                         TensorizedModule(
                             layer,
+                            config.rank,
                             config.init_scale,
-                            config.order,
+                            config.order_a,
+                            config.order_b,
                             config.embed2ket_rank,
                         ),
                     )
@@ -104,7 +139,9 @@ if __name__ == "__main__":
             self.lora_modules = ".*SelfAttention|.*EncDecAttention|.*DenseReluDense"
             self.lora_layers = "q|k|v|o|w.*"
             self.trainable_param_names = ".*layer_norm.*|.*lora_[ab].*"
-            self.order = 11
+            self.rank = 2
+            self.order_a = 4
+            self.order_b = 10
             self.core = "adapter2ket"
             self.embed2ket_rank = 2
             # lora_modules and lora_layers are speicified with regular expressions
@@ -127,26 +164,25 @@ if __name__ == "__main__":
         return_tensors="pt",
     )
 
-    # print("Old model")
-    # print(model)
-    # with torch.no_grad():
-    #     old_outputs = model(
-    #         input_ids=input_seq.input_ids,
-    #         decoder_input_ids=target_seq.input_ids[:, :-1],
-    #         labels=target_seq.input_ids[:, 1:],
-    #     )
+    print("Old model")
+    print(model)
+    with torch.no_grad():
+        old_outputs = model(
+            input_ids=input_seq.input_ids,
+            decoder_input_ids=target_seq.input_ids[:, :-1],
+            labels=target_seq.input_ids[:, 1:],
+        )
 
     model = modify_with_tensorized_module(model, config)
-    breakpoint()
 
-    # print("New model")
-    # print(model)
-    # with torch.no_grad():
-    #     new_outputs = model(
-    #         input_ids=input_seq.input_ids,
-    #         decoder_input_ids=target_seq.input_ids[:, :-1],
-    #         labels=target_seq.input_ids[:, 1:],
-    #     )
+    print("New model")
+    print(model)
+    with torch.no_grad():
+        new_outputs = model(
+            input_ids=input_seq.input_ids,
+            decoder_input_ids=target_seq.input_ids[:, :-1],
+            labels=target_seq.input_ids[:, 1:],
+        )
 
     print("Trainable parameters")
     for p_name in dict(model.named_parameters()).keys():
