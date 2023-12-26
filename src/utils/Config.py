@@ -32,7 +32,10 @@ class Config(object):
         self.raft_validation_start = 0
         self.raft_labels_in_input_string = "comma"
         self.cleaned_answer_choices_b77 = False
+
         self.order = 2
+        self.order_a = 2
+        self.order_b = 2
         self.core = "ia3"
         self.embed2ket_rank = 2
 

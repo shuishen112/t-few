@@ -69,10 +69,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config_files", required=True)
     parser.add_argument("-k", "--kwargs", nargs="*", action=ParseKwargs, default={})
-    # parser.add_argument(
-    #     "-c", "--config_files", default="t03b.json+ia3_emb2ket.json+copa.json"
-    # )
-    # parser.add_argument("-k", "--kwargs", nargs="*", action=ParseKwargs, default={})
     parser.add_argument("-g", "--gpus", default=0)
     args = parser.parse_args()
 

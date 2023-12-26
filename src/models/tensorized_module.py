@@ -92,14 +92,6 @@ class TensorizedModule(nn.Module):
 
         self.order_a = order_a
         self.order_b = order_b
-        if linear_layer.out_features == 2048:
-            self.order_a = 11
-        elif linear_layer.out_features == 512:
-            self.order_a = 10
-        if linear_layer.in_features == 2048:
-            self.order_b = 11
-        elif linear_layer.in_features == 512:
-            self.order_b = 10
 
         self.embedding_dim_leaf_b = math.ceil(
             (self.embedding_size_b) ** (1 / self.order_b)
@@ -146,7 +138,6 @@ class TensorizedModule(nn.Module):
             )
 
         base = base.sum(dim=0)
-        print("tensor size", base.shape)
         tpr = base[:, :feature_dim]
         return tpr
 
@@ -208,7 +199,7 @@ def modify_with_tensorized_module(transformer, config):
                         c_name,
                         TensorizedModule(
                             layer,
-                            config.rank,
+                            config.lora_rank,
                             config.init_scale,
                             config.order_a,
                             config.order_b,
@@ -228,8 +219,8 @@ if __name__ == "__main__":
             self.lora_layers = "q|k|v|o|w.*"
             self.trainable_param_names = ".*layer_norm.*|.*lora_[ab].*"
             self.rank = 2
-            self.order_a = 4
-            self.order_b = 10
+            self.order_a = 8
+            self.order_b = 8
             self.core = "adapter2ket"
             self.embed2ket_rank = 2
             # lora_modules and lora_layers are speicified with regular expressions
@@ -244,12 +235,12 @@ if __name__ == "__main__":
             self.order = 9
             self.embed2ket_rank = 2
 
-    config = TensorizedSquareModuleConfig()
-    model_name = "t5-small"  # bigscience/T0_3B
-    # model_name = "bigscience/T0_3B"
+    config = TensorizedModuleConfig()
+    # model_name = "t5-small"  # bigscience/T0_3B
+    model_name = "bigscience/T0_3B"
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-
+    breakpoint()
     input_seq = tokenizer(
         ["Applies a linear transformation to the incoming data."],
         return_tensors="pt",
@@ -270,10 +261,11 @@ if __name__ == "__main__":
             labels=target_seq.input_ids[:, 1:],
         )
 
-    model = modify_with_tensorized_square_module(model, config)
+    model = modify_with_tensorized_module(model, config)
 
     print("New model")
     print(model)
+
     with torch.no_grad():
         new_outputs = model(
             input_ids=input_seq.input_ids,
@@ -281,9 +273,9 @@ if __name__ == "__main__":
             labels=target_seq.input_ids[:, 1:],
         )
 
-    print("Trainable parameters")
-    for p_name in dict(model.named_parameters()).keys():
-        print(p_name)
+    # print("Trainable parameters")
+    # for p_name in dict(model.named_parameters()).keys():
+    #     print(p_name)
 
     # print(
     #     f"Logits diff {torch.abs(old_outputs.logits - new_outputs.logits).mean():.3f}"
